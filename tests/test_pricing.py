@@ -24,3 +24,7 @@ def test_unknown_coupon_rejected():
         checkout([{"price": 10, "qty": 1}], coupon="BOGUS")
 
 # --- regression tests added by agents below ---
+
+
+def test_coupon_case_insensitive():
+    assert checkout([{"price": 50, "qty": 2}], coupon="save10") == 98.0

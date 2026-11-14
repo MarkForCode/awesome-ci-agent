@@ -41,7 +41,7 @@
    > 为什么需要 PAT：用默认 `GITHUB_TOKEN` 打的标签、开的 PR、做的合并**不会触发其他 workflow**，循环会断。
 3. **Settings → Secrets and variables → Actions**：
    - Secret `LOOP_TOKEN` = 上面的 PAT
-   - Secret `ANTHROPIC_API_KEY` = 你的 Claude API key（用 mock 模式可以先不设）
+   - Secret `CLAUDE_CODE_OAUTH_TOKEN` = 用 Claude Pro/Max 订阅执行 `claude setup-token` 生成的 token（用 mock 模式可以先不设）
    - Variable `AGENT_MODE` = `mock`（先免费跑通；之后删掉或改成 `claude` 就会用真的 Claude Code）
    - 可选 Variable `AUTO_APPROVE_FEATURES` = `true`：新需求不用人批准
    - 可选 Variable `AUTO_MERGE` = `false`：agent 的 PR 改成由人审核后合并
@@ -58,7 +58,10 @@
 
 ### 换成 Claude Code
 
-把 `AGENT_MODE` 改成 `claude`，再设好 `ANTHROPIC_API_KEY`，`agent.yml` 就会用 `anthropics/claude-code-action@v1`。
+把 `AGENT_MODE` 改成 `claude`，再设好 `CLAUDE_CODE_OAUTH_TOKEN`，`agent.yml` 就会用 `anthropics/claude-code-action@v1`。
+token 有效期 1 年，`claude setup-token` 会分行显示，复制后要确认中间没有换行：
+`tr -d '[:space:]' | gh secret set CLAUDE_CODE_OAUTH_TOKEN`（贴上后按 Enter、Ctrl+D）。
+用量算在订阅额度里。想改用 API key：把 `agent.yml` 里的 `claude_code_oauth_token` 换回 `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}`。
 Claude 只允许读写文件、运行 pytest；commit、开 PR、合并都由 workflow 来做，权限边界清楚。
 可以在 `claude_args` 里加 `--model` 或调 `--max-turns`。
 

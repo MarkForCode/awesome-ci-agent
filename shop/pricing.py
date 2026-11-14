@@ -7,6 +7,8 @@ SHIPPING_FEE = 8
 
 
 def checkout(items, coupon=None):
+    if not items:
+        return 0.0
     subtotal = sum(i["price"] * i.get("qty", 1) for i in items)
     avg = subtotal / sum(i.get("qty", 1) for i in items)
     if avg > BULK_THRESHOLD:

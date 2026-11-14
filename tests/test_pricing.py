@@ -32,3 +32,7 @@ def test_coupon_case_insensitive():
 
 def test_missing_qty_defaults_to_one():
     assert checkout([{"price": 10}]) == 18.0
+
+
+def test_empty_cart_is_free():
+    assert checkout([]) == 0.0

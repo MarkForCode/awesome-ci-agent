@@ -28,3 +28,7 @@ def test_unknown_coupon_rejected():
 
 def test_coupon_case_insensitive():
     assert checkout([{"price": 50, "qty": 2}], coupon="save10") == 98.0
+
+
+def test_missing_qty_defaults_to_one():
+    assert checkout([{"price": 10}]) == 18.0

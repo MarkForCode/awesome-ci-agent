@@ -12,6 +12,7 @@ def checkout(items, coupon=None):
     if avg > BULK_THRESHOLD:
         subtotal *= 0.95
     if coupon:
+        coupon = coupon.strip().upper()
         if coupon not in COUPONS:
             raise ValueError(f"unknown coupon: {coupon}")
         subtotal *= 1 - COUPONS[coupon]

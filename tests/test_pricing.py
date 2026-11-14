@@ -40,3 +40,9 @@ def test_empty_cart_is_free():
 
 def test_freeship_coupon():
     assert checkout([{"price": 10, "qty": 1}], coupon="FREESHIP") == 10.0
+
+
+def test_invalid_qty_rejected():
+    for qty in (0, -3):
+        with pytest.raises(ValueError):
+            checkout([{"price": 10, "qty": qty}])

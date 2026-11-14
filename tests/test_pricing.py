@@ -36,3 +36,7 @@ def test_missing_qty_defaults_to_one():
 
 def test_empty_cart_is_free():
     assert checkout([]) == 0.0
+
+
+def test_freeship_coupon():
+    assert checkout([{"price": 10, "qty": 1}], coupon="FREESHIP") == 10.0

@@ -1,0 +1,118 @@
+name: Agent Fix
+
+# Triggered when the monitor labels an issue `agent-fix`. Claude Code edits the code,
+# tests gate the result, and a PR is opened that closes the issue on merge.
+on:
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: agent
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    if: github.event.label.name == 'agent-fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ secrets.LOOP_TOKEN }}
+      ISSUE: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.LOOP_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+
+      - name: Read ticket signature
+        id: ticket
+        run: |
+          gh issue view "$ISSUE" --json body -q .body > /tmp/issue.md
+          sig=$(grep -oP '(?<=<!-- loop-signature: ).+?(?= -->)' /tmp/issue.md || true)
+          echo "signature=$sig" >> "$GITHUB_OUTPUT"
+          gh issue comment "$ISSUE" --body "🤖 Agent picked this up (mode: \`${{ vars.AGENT_MODE || 'claude' }}\`). [Run log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+      - name: Agent (offline mock)
+        if: vars.AGENT_MODE == 'mock'
+        continue-on-error: true
+        env:
+          SIG: ${{ steps.ticket.outputs.signature }}
+        run: python loop/mock_agent.py "$SIG"
+
+      - name: Agent (Claude Code)
+        if: vars.AGENT_MODE != 'mock'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.LOOP_TOKEN }}
+          prompt: |
+            You are the coding agent in an automated loop for ${{ github.repository }}.
+            Fix GitHub issue #${{ github.event.issue.number }}. Its full text is in /tmp/issue.md.
+
+            Rules:
+            - Make the smallest change in shop/ that resolves the issue.
+            - Add at least one regression test at the end of tests/test_pricing.py
+              that fails before your fix and passes after.
+            - Run `python -m pytest -q` until everything passes.
+            - Only edit files. Do NOT commit, push, comment, or open a PR; the workflow does that.
+            - When done, write a one-line summary of the change to .agent-summary
+          claude_args: >-
+            --max-turns 30
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(python -m pytest*)"
+
+      - name: Verification gate
+        id: gate
+        continue-on-error: true
+        run: |
+          rm -rf .pytest_cache
+          if git diff --quiet -- shop tests; then echo "Agent made no changes"; exit 1; fi
+          python -m pytest -q 2>&1 | tee /tmp/pytest.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Open PR
+        if: steps.gate.outcome == 'success'
+        run: |
+          summary=$(cat .agent-summary 2>/dev/null || echo "Fix issue #$ISSUE")
+          branch="agent/issue-$ISSUE"
+          git config user.name "agent-loop[bot]"
+          git config user.email "agent-loop@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add shop tests
+          git commit -m "$summary (#$ISSUE)"
+          git push -f origin "$branch"
+          {
+            echo "Fixes #$ISSUE"
+            echo
+            echo "**Change:** $summary"
+            echo
+            echo "**Verification (agent run):**"
+            echo '```'
+            tail -n 5 /tmp/pytest.txt
+            echo '```'
+            echo
+            echo "_Opened by the agent loop. CI must pass before it auto-merges._"
+          } > /tmp/pr.md
+          gh pr create --base main --head "$branch" --title "$summary" --body-file /tmp/pr.md --label agent-pr
+          gh issue edit "$ISSUE" --remove-label agent-fix
+
+      - name: Escalate to a human
+        if: steps.gate.outcome != 'success'
+        run: |
+          {
+            echo "🙋 The agent could not produce a passing fix. Escalating to a human."
+            echo '```'
+            tail -n 30 /tmp/pytest.txt 2>/dev/null || echo "no test output"
+            echo '```'
+          } > /tmp/fail.md
+          gh issue comment "$ISSUE" --body-file /tmp/fail.md
+          gh issue edit "$ISSUE" --remove-label agent-fix --add-label needs-human
+          gh workflow run monitor.yml -f mode=pick

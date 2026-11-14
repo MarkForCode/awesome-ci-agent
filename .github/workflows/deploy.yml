@@ -1,0 +1,38 @@
+name: Deploy
+
+# Every merge to main is deployed. "Deploying" here = tagging the commit prod-N; the monitor
+# replays traffic against the latest prod-* tag. Swap the last step for your real deploy.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Add required reviewers to the `production` environment in repo settings for a human release gate.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - name: Pre-deploy tests
+        run: python -m pytest -q
+      - name: Deploy (tag release)
+        run: |
+          tag="prod-${{ github.run_number }}"
+          git tag "$tag"
+          git push origin "$tag"
+          echo "## 🚀 Deployed \`$tag\` ($(git rev-parse --short HEAD))" >> "$GITHUB_STEP_SUMMARY"
+          git log -1 --pretty='%s' >> "$GITHUB_STEP_SUMMARY"

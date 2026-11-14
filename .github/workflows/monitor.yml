@@ -1,0 +1,54 @@
+name: Monitor & Analyze
+
+# Watches production, opens issues (bugs + new requirements), hands the next one to the agent.
+on:
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = check prod + open issues; pick = only hand next issue to agent"
+        type: choice
+        options: [full, pick]
+        default: full
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.label.name == 'ready')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check production and manage tickets
+        env:
+          # A PAT is required: events created with the default GITHUB_TOKEN do not trigger other workflows.
+          GH_TOKEN: ${{ secrets.LOOP_TOKEN }}
+          AUTO_APPROVE_FEATURES: ${{ vars.AUTO_APPROVE_FEATURES }}
+          MODE: ${{ github.event_name == 'issues' && 'pick' || inputs.mode || 'full' }}
+        run: python loop/gh_monitor.py --mode "$MODE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prod-logs-${{ github.run_number }}
+          path: state/
+          if-no-files-found: ignore
